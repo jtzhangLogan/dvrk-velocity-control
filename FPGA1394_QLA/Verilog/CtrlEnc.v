@@ -36,7 +36,11 @@ module CtrlEnc(
     output wire[31:0] reg_perd_data,
     output wire[31:0] reg_qtr1_data,
     output wire[31:0] reg_qtr5_data,
-    output wire[31:0] reg_run_data
+    output wire[31:0] reg_run_data,
+    /*<enc ctrl>*/
+    output wire [25:0] enc_fb,
+    output reg  [3:0]  enc_perd_chan,
+    output wire [1:`NUM_CHANNELS] enc_dir_fb
 );    
     
 // -------------------------------------------------------------------------
@@ -137,5 +141,29 @@ begin
     else 
         set_enc <= {`NUM_CHANNELS{1'b0}};
 end
+
+// -------------------------------------------------------------------------
+// encoder period mux (encoder period control)
+// -------------------------------------------------------------------------
+// udpate control target
+wire         enc_perd_chan_wen;
+assign       enc_perd_chan_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                            reg_waddr[7:4] == `OFF_ENC_CHAN;
+
+initial      enc_perd_chan = 3'd1;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_perd_chan_wen) 
+    begin
+        enc_perd_chan <= reg_wdata[3:0];
+    end
+end
+
+// feedback encoder period
+assign enc_fb = perd_data[enc_perd_chan][25:0];
+
+// feedback encoder direction flag
+assign enc_dir_fb = dir;
 
 endmodule

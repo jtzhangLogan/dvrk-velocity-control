@@ -56,6 +56,13 @@
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
 `define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
+`define ADDR_ENC_CTRL 4'h9
+`define ADDR_ENC_DB1  4'hA
+`define ADDR_ENC_DB2  4'hB
+`define ADDR_ENC_DB3  4'hC
+`define ADDR_ENC_DB4  4'hD
+`define ADDR_ENC_DB5  4'hE
+`define ADDR_ENC_DB6  4'hF
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
@@ -123,5 +130,49 @@
 `define WDOG_PHASE_THREE 3'b011   // watchdog period between 100ms and 150 ms
 `define WDOG_PHASE_FOUR  3'b100   // watchdog period between 150ms and 200 ms
 `define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
+
+// ----------------------------------
+// Velocity controller macros
+//
+// [7:4] 
+//      <0> : reference
+//      <1> : P term
+//      <2> : I term
+//      <3> : D term
+//      <4> : Top level controller
+// 
+//      <12>: controller mode
+//      <13>: system identification 
+//      <14>: channel selection
+//      <15>: 
+//
+// [3:0] 
+//      <0> : enable
+//      <1> : disable
+//      <2> : set value
+//      <3> : set fraction shift
+//      <4> : set limit
+// ----------------------------------
+
+`define OFF_ENC_REF       4'h0
+`define OFF_ENC_P         4'h1
+`define OFF_ENC_I         4'h2
+`define OFF_ENC_D         4'h3
+`define OFF_ENC_TOP       4'h4
+`define OFF_ENC_DIR       4'h5 // MOVE TO TOP EVENTUALLY
+`define OFF_ENC_CTRL_MODE 4'hC
+`define OFF_ENC_SYS_IDT   4'hD
+`define OFF_ENC_CHAN      4'hE
+`define OFF_ENC_FSAMPLE   4'hF
+
+`define OFF_ENC_DISABLE   4'h0
+`define OFF_ENC_ENABLE    4'h1
+`define OFF_ENC_VAL       4'h2
+`define OFF_ENC_SHIFT     4'h3
+`define OFF_ENC_CLAMP     4'h4
+`define OFF_ENC_WINDUP    4'h5
+
+`define OFF_ENC_DEPENDENT 3'd1
+`define OFF_ENC_CLASSIC   3'd2
 
 `endif  // _fpgaqla_constants_v_
