@@ -151,7 +151,16 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
                   ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))));
+                  ((reg_raddr[15:12]==`ADDR_ENC_CTRL) ? (reg_enc_ctrl_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB1) ? (reg_enc_db1_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB2) ? (reg_enc_db2_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB3) ? (reg_enc_db3_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB4) ? (reg_enc_db4_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB5) ? (reg_enc_db5_data) :
+                  ((reg_raddr[15:12]==`ADDR_ENC_DB6) ? (reg_enc_db6_data) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))))))))));
+
+//wire [31:0]  reg_enc_error_data;
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -340,18 +349,27 @@ assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 // dacs
 // --------------------------------------------------------------------------
 
+wire         dac_ready;
+wire [15:0]  dac_cmd [1:4];
+
+assign       dac_ready   = enc_ctrl_enable ? velCtrlReady : cur_cmd_updated;
+assign       dac_cmd[1]  = ((enc_ctrl_enable && (enc_perd_chan == 4'd1)) || (!enc_ctrl_enable && (enc_perd_chan == 4'd1) && sys_idt_enable)) ? velCtrlOutput : cur_cmd[1];
+assign       dac_cmd[2]  = ((enc_ctrl_enable && (enc_perd_chan == 4'd2)) || (!enc_ctrl_enable && (enc_perd_chan == 4'd2) && sys_idt_enable)) ? velCtrlOutput : cur_cmd[2];
+assign       dac_cmd[3]  = ((enc_ctrl_enable && (enc_perd_chan == 4'd3)) || (!enc_ctrl_enable && (enc_perd_chan == 4'd3) && sys_idt_enable)) ? velCtrlOutput : cur_cmd[3];
+assign       dac_cmd[4]  = ((enc_ctrl_enable && (enc_perd_chan == 4'd4)) || (!enc_ctrl_enable && (enc_perd_chan == 4'd4) && sys_idt_enable)) ? velCtrlOutput : cur_cmd[4];
+
 // the dac controller manages access to the dacs
 CtrlDac dac(
     .sysclk(sysclk),
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
-    .dac1(cur_cmd[1]),
-    .dac2(cur_cmd[2]),
-    .dac3(cur_cmd[3]),
-    .dac4(cur_cmd[4]),
+    .dac1(dac_cmd[1]),
+    .dac2(dac_cmd[2]),
+    .dac3(dac_cmd[3]),
+    .dac4(dac_cmd[4]),
     .busy(dac_busy),
-    .data_ready(cur_cmd_updated)
+    .data_ready(dac_ready)
 );
 
 
@@ -365,6 +383,10 @@ wire[31:0] reg_perd_data;
 wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
+
+wire [25:0] enc_fb;
+wire [3:0]  enc_perd_chan;
+wire [1:`NUM_CHANNELS] enc_dir_fb;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -380,7 +402,10 @@ CtrlEnc enc(
     .reg_perd_data(reg_perd_data),
     .reg_qtr1_data(reg_qtr1_data),
     .reg_qtr5_data(reg_qtr5_data),
-    .reg_run_data(reg_run_data)
+    .reg_run_data(reg_run_data),
+    .enc_fb(enc_fb),
+    .enc_perd_chan(enc_perd_chan),
+    .enc_dir_fb(enc_dir_fb)
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
@@ -389,6 +414,388 @@ assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
 assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
+
+// --------------------------------------------------------------------------
+// velocity controller
+// --------------------------------------------------------------------------
+// ---- system identification: command step current
+reg          sys_idt_enable;
+reg [15:0]   cur_step;
+
+wire         sys_idt_enable_wen;
+assign       sys_idt_enable_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                             reg_waddr[7:4] == `OFF_ENC_SYS_IDT;
+
+always @(posedge(sysclk)) 
+begin
+    if (sys_idt_enable_wen && reg_waddr[3:0] == `OFF_ENC_ENABLE) 
+    begin
+        sys_idt_enable <= 1;
+        cur_step <= reg_wdata[15:0];
+    end 
+    else if (sys_idt_enable_wen && reg_waddr[3:0] == `OFF_ENC_DISABLE) 
+    begin
+        sys_idt_enable <= 0;
+        cur_step <= 16'h8000;
+    end
+end 
+
+// ---- controller power
+reg          enc_ctrl_enable;
+wire         enc_ctrl_wen;
+assign       enc_ctrl_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                       reg_waddr[7:4] == `OFF_ENC_TOP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_ctrl_wen && reg_waddr[3:0] == `OFF_ENC_ENABLE) 
+    begin
+        enc_ctrl_enable <= 1;
+    end 
+    else if (enc_ctrl_wen && reg_waddr[3:0] == `OFF_ENC_DISABLE)
+    begin
+        enc_ctrl_enable <= 0;
+    end
+end
+
+// ---- controller mode
+reg [2:0] enc_ctrl_mode;
+initial   enc_ctrl_mode = 3'd1;
+
+wire         enc_ctrl_mode_wen;
+assign       enc_ctrl_mode_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                            reg_waddr[7:4] == `OFF_ENC_CTRL_MODE;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_ctrl_mode_wen) 
+    begin
+        enc_ctrl_mode <= reg_wdata[2:0];
+    end
+end 
+
+// ---- controller reference 
+// reference velocity
+reg  [25:0]  enc_cmd;
+
+initial      
+begin
+    enc_cmd = 26'h3FFFFFF; // initialized to zero velocity to prevent damage
+end
+
+wire         enc_cmd_wen;
+assign       enc_cmd_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                      reg_waddr[7:4] == `OFF_ENC_REF && 
+                                      reg_waddr[3:0] == `OFF_ENC_VAL;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_cmd_wen) 
+    begin
+        enc_cmd <= reg_wdata[25:0];
+    end
+end
+
+// reference direction
+reg  enc_dir_cmd;
+
+
+wire         enc_dir_cmd_wen;
+assign       enc_dir_cmd_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                          reg_waddr[7:4] == `OFF_ENC_DIR && 
+                                          reg_waddr[3:0] == `OFF_ENC_VAL;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_dir_cmd_wen) 
+    begin
+        enc_dir_cmd <= reg_wdata[0];
+    end
+end
+
+// ---- controller gain
+reg signed [31:0]   Kp;
+reg signed [31:0]   Ki;
+reg signed [31:0]   Kd;
+
+wire         enc_kp_wen;
+wire         enc_ki_wen;
+wire         enc_kd_wen;
+
+assign       enc_kp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                     reg_waddr[7:4] == `OFF_ENC_P &&
+                                     reg_waddr[3:0] == `OFF_ENC_VAL;
+
+assign       enc_ki_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                     reg_waddr[7:4] == `OFF_ENC_I &&
+                                     reg_waddr[3:0] == `OFF_ENC_VAL;
+
+assign       enc_kd_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                     reg_waddr[7:4] == `OFF_ENC_D &&
+                                     reg_waddr[3:0] == `OFF_ENC_VAL;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_kp_wen) 
+    begin
+        Kp <= reg_wdata[31:0];
+    end
+
+    if (enc_ki_wen) 
+    begin
+        Ki <= reg_wdata[31:0];
+    end
+
+    if (enc_kd_wen) 
+    begin
+        Kd <= reg_wdata[31:0];
+    end
+end
+
+// ---- controller gain resolutions
+reg [6:0]   Kp_shift;
+reg [6:0]   Ki_shift;
+reg [6:0]   Kd_shift;
+
+initial 
+begin
+    Kp_shift = 7'd8;
+    Ki_shift = 7'd8;
+    Kd_shift = 7'd8;
+end
+
+wire        enc_kp_shift_wen;
+wire        enc_ki_shift_wen;
+wire        enc_kd_shift_wen;
+
+assign      enc_kp_shift_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                          reg_waddr[7:4] == `OFF_ENC_P &&
+                                          reg_waddr[3:0] == `OFF_ENC_SHIFT;
+
+assign      enc_ki_shift_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                          reg_waddr[7:4] == `OFF_ENC_I &&
+                                          reg_waddr[3:0] == `OFF_ENC_SHIFT;
+
+assign      enc_kd_shift_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                          reg_waddr[7:4] == `OFF_ENC_D &&
+                                          reg_waddr[3:0] == `OFF_ENC_SHIFT;
+always @(posedge(sysclk))
+begin
+    if (enc_kp_shift_wen) 
+    begin
+        Kp_shift <= reg_wdata[6:0];
+    end
+
+    if (enc_ki_shift_wen) 
+    begin
+        Ki_shift <= reg_wdata[6:0];
+    end
+
+    if (enc_kd_shift_wen) 
+    begin
+        Kd_shift <= reg_wdata[6:0];
+    end
+end  
+
+// ---- controller output limit
+// P
+reg signed [15:0] up_clamp;
+
+wire    enc_up_clamp_wen;
+assign  enc_up_clamp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                      reg_waddr[7:4] == `OFF_ENC_P &&
+                                      reg_waddr[3:0] == `OFF_ENC_CLAMP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_up_clamp_wen) 
+    begin
+        up_clamp <= reg_wdata[15:0];
+    end
+end
+
+// I
+reg signed [15:0] ui_clamp;
+
+wire    enc_ui_clamp_wen;
+assign  enc_ui_clamp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                      reg_waddr[7:4] == `OFF_ENC_I &&
+                                      reg_waddr[3:0] == `OFF_ENC_CLAMP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_ui_clamp_wen) 
+    begin
+        ui_clamp <= reg_wdata[15:0];
+    end
+end
+
+// D
+reg signed [15:0] ud_clamp;
+
+wire    enc_ud_clamp_wen;
+assign  enc_ud_clamp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                      reg_waddr[7:4] == `OFF_ENC_D &&
+                                      reg_waddr[3:0] == `OFF_ENC_CLAMP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_ud_clamp_wen) 
+    begin
+        ud_clamp <= reg_wdata[15:0];
+    end
+end
+
+// TOP
+reg [15:0] upid_clamp;
+
+wire    enc_upid_clamp_wen;
+assign  enc_upid_clamp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                        reg_waddr[7:4] == `OFF_ENC_TOP &&
+                                        reg_waddr[3:0] == `OFF_ENC_CLAMP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_upid_clamp_wen) 
+    begin
+        upid_clamp <= reg_wdata[15:0];
+    end
+end
+
+// I, anti-windup saturation
+reg signed [15:0] ui_windup;
+
+wire    enc_ui_windup_wen;
+assign  enc_ui_windup_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                       reg_waddr[7:4] == `OFF_ENC_I &&
+                                       reg_waddr[3:0] == `OFF_ENC_WINDUP;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_ui_windup_wen) 
+    begin
+        ui_windup <= reg_wdata[15:0];
+    end
+end
+
+// -- controller sampling frequency
+reg  [15:0] enc_sample_seqn;
+reg  [15:0] enc_sample_max;
+wire [15:0] enc_sample_half;
+reg         enc_fb_wen;
+
+initial   
+begin
+    enc_sample_max  = 16'd64; // 768kHz, twice as DAC
+end
+
+assign enc_sample_half = enc_sample_max >>> 1;
+
+always @(posedge(sysclk)) 
+begin
+    enc_sample_seqn <= (enc_sample_seqn < enc_sample_max) ? (enc_sample_seqn + 16'd1) : 0;
+    if (enc_sample_seqn == enc_sample_half) 
+    begin
+        enc_fb_wen <= 1;
+    end else 
+    begin
+        enc_fb_wen <= 0;
+    end
+end
+
+// change sampling frequency
+wire         enc_sample_freq_wen;
+assign       enc_sample_freq_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                              reg_waddr[7:4] == `OFF_ENC_FSAMPLE;
+
+always @(posedge(sysclk)) 
+begin
+    if (enc_sample_freq_wen) 
+    begin
+        enc_sample_max <= reg_wdata[15:0];
+    end
+end
+
+// ---- controller implementation
+wire signed [31:0] err_sync;
+wire signed [31:0] err_prev;
+wire signed [31:0] err_i;
+
+wire signed [15:0] p16_debug;
+wire signed [15:0] i16_debug;
+wire signed [15:0] d16_debug;
+wire        [15:0] pid16_debug;
+wire               sat_debug;
+
+wire        velCtrlReady;
+wire [15:0] velCtrlOutput;
+
+CtrlVel epc 
+(
+    .clk(sysclk),
+
+    .enc_ctrl_enable(enc_ctrl_enable),  
+    .enc_ctrl_mode(enc_ctrl_mode),
+
+    .cur_fb(cur_fb[enc_perd_chan]),
+    .cur_fb_ready(cur_fb_wen),
+    .enc_fb(enc_fb),
+    .enc_dir_fb(enc_dir_fb[enc_perd_chan]),
+    .enc_val_ready(enc_fb_wen),
+
+    .enc_dir_cmd(enc_dir_cmd),
+    .enc_cmd(enc_cmd),
+
+    .err_sync(err_sync),
+    .err_prev(err_prev),
+    .err_i(err_i),
+
+    .Kp(Kp),
+    .Ki(Ki),
+    .Kd(Kd),
+    .Kp_shift(Kp_shift),
+    .Ki_shift(Ki_shift),
+    .Kd_shift(Kd_shift),
+    .up_clamp(up_clamp),
+    .ui_clamp(ui_clamp),
+    .ud_clamp(ud_clamp),
+    .upid_clamp(upid_clamp),
+    .ui_windup(ui_windup),
+
+    .dac_busy(dac_busy),
+
+    .velCtrlReady(velCtrlReady),   
+    .velCtrlOutput(velCtrlOutput),
+
+    .sys_idt_enable(sys_idt_enable),
+    .cur_step(cur_step),
+
+    .p16_debug(p16_debug),
+    .i16_debug(i16_debug),
+    .d16_debug(d16_debug),
+    .pid16_debug(pid16_debug),
+    .sat_debug(sat_debug)
+);
+
+// ---- debug controller output + status register read data
+// {[1] - sys_idt_enable; [3] - enc_ctrl_mode; [4] - enc_perd_chan; [1] - enc_ctrl_enable; [16] velCtrlOutput}
+wire [31:0]  reg_enc_ctrl_data;
+assign       reg_enc_ctrl_data = {7'b0, sys_idt_enable, enc_ctrl_mode, enc_perd_chan, enc_ctrl_enable, velCtrlOutput};
+
+// ---- debug controller internal signals register read data
+wire [31:0]  reg_enc_db1_data;
+wire [31:0]  reg_enc_db2_data;
+wire [31:0]  reg_enc_db3_data;
+wire [31:0]  reg_enc_db4_data;
+wire [31:0]  reg_enc_db5_data;
+wire [31:0]  reg_enc_db6_data;
+
+assign       reg_enc_db1_data = err_i;
+assign       reg_enc_db2_data = {sat_debug, enc_dir_fb[enc_perd_chan], enc_dir_cmd, 3'b0, enc_fb};
+assign       reg_enc_db3_data = {d16_debug, p16_debug};
+assign       reg_enc_db4_data = {pid16_debug, i16_debug};
+assign       reg_enc_db5_data = {ui_windup, cur_fb[enc_perd_chan]};
+assign       reg_enc_db6_data = err_sync;
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
