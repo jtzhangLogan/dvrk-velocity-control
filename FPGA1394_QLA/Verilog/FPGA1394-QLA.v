@@ -647,7 +647,7 @@ begin
 end
 
 // TOP
-reg [15:0] upid_clamp;
+reg signed [15:0] upid_clamp;
 
 wire    enc_upid_clamp_wen;
 assign  enc_upid_clamp_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
@@ -730,7 +730,7 @@ wire               sat_debug;
 wire        velCtrlReady;
 wire [15:0] velCtrlOutput;
 
-CtrlVel epc 
+CtrlVelST epc 
 (
     .clk(sysclk),
 
