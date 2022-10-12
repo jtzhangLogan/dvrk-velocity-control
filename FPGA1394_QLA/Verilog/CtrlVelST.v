@@ -41,6 +41,9 @@ module CtrlVelST(
     input  wire signed   [15:0] upid_clamp,
     input  wire signed   [15:0] ui_windup,
 
+    // d term update 
+    input  wire                 d_update,
+
     // DAC busy
     input  wire                 dac_busy,
 
@@ -89,17 +92,17 @@ begin
 end
 assign enc_val_ready_trigger = (!enc_val_ready_prev) && enc_val_ready_sync;
 
-// current feedback new value trigger
-reg  cur_fb_ready_sync;
-reg  cur_fb_ready_prev;
-wire cur_fb_ready_trigger;
+// d term update new value trigger
+reg  d_update_sync;
+reg  d_update_prev;
+wire d_update_trigger;
 
 always @(posedge(clk)) 
 begin
-    cur_fb_ready_sync <= cur_fb_ready;
-    cur_fb_ready_prev <= cur_fb_ready_sync;
+    d_update_sync <= d_update;
+    d_update_prev <= d_update_sync;
 end
-assign cur_fb_ready_trigger = (!cur_fb_ready_prev) && cur_fb_ready_sync;
+assign d_update_trigger = (!d_update_prev) && d_update_sync;
 
 // ----------------------------------------
 // debug
@@ -322,7 +325,7 @@ end
 
 always @(posedge(clk))
 begin
-    if (cur_fb_ready_trigger) // update at ADC sampling frequency, could use other rate if needed
+    if (enc_ctrl_enable && d_update_trigger) // update at ADC sampling frequency, could use other rate if needed
     begin
         // update previous tracking error
         err_prev <= err_sync;

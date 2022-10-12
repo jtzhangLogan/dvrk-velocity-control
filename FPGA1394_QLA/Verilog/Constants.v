@@ -171,6 +171,7 @@
 `define OFF_ENC_SHIFT     4'h3
 `define OFF_ENC_CLAMP     4'h4
 `define OFF_ENC_WINDUP    4'h5
+`define OFF_ENC_FUPDATE   4'h6
 
 `define OFF_ENC_DEPENDENT 3'd1
 `define OFF_ENC_CLASSIC   3'd2

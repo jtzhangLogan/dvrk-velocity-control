@@ -716,6 +716,45 @@ begin
     end
 end
 
+// -- controller derivative computation frequency
+reg  [15:0] d_update_seqn;
+reg  [15:0] d_update_max;
+wire [15:0] d_update_half;
+reg         d_update_wen;
+
+initial   
+begin
+    d_update_max  = 16'd512; // 512 - 96kHz; 1024 - 48kHz; 2048 - 24kHz; 4096 - 12 kHz; 8192 - 6kHz; 16384 - 3kHz 
+end
+
+assign d_update_half = d_update_max >>> 1;
+
+always @(posedge(sysclk)) 
+begin
+    d_update_seqn <= (d_update_seqn < d_update_max) ? (d_update_seqn + 16'd1) : 0;
+    if (d_update_seqn == enc_sample_half) 
+    begin
+        d_update_wen <= 1;
+    end else 
+    begin
+        d_update_wen <= 0;
+    end
+end
+
+// change derivative computation frequency
+wire         d_update_freq_wen;
+assign       d_update_freq_wen = reg_wen && reg_waddr[15:12] == `ADDR_ENC_CTRL && 
+                                            reg_waddr[7:4] == `OFF_ENC_D &&
+                                            reg_waddr[3:0] == `OFF_ENC_FUPDATE;
+
+always @(posedge(sysclk)) 
+begin
+    if (d_update_freq_wen) 
+    begin
+        d_update_max <= reg_wdata[15:0];
+    end
+end
+
 // ---- controller implementation
 wire signed [31:0] err_sync;
 wire signed [31:0] err_prev;
@@ -761,6 +800,8 @@ CtrlVelST epc
     .ud_clamp(ud_clamp),
     .upid_clamp(upid_clamp),
     .ui_windup(ui_windup),
+
+    .d_update(d_update_wen),
 
     .dac_busy(dac_busy),
 
