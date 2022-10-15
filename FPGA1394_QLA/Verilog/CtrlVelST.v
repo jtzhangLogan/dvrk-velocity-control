@@ -76,6 +76,7 @@ parameter signed max_pos32 = 32'sh7fffffff;
 parameter signed min_neg32 = 32'sh80000000;
 
 parameter cur_offset = 16'h8000;
+parameter signed freeze_perd = 32'sh03FFFFFF;
 
 // ----------------------------------------
 // trigger signals
@@ -243,7 +244,8 @@ always @(posedge(clk)) begin
 
         ST_CAL_ERR: // 1
         begin
-            err_sync <= {6'b0, enc_cmd} - {6'b0, enc_fb}; 
+            // check if direction is matched, if match, error is the difference; if match, error is now capped at 3FFFFFF
+            err_sync <= (enc_dir_cmd == enc_dir_fb) ? {6'b0, enc_cmd} - {6'b0, enc_fb} : -freeze_perd;
 
             state <= ST_CAL_64;
         end
