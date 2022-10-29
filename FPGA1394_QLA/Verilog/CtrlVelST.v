@@ -245,7 +245,7 @@ always @(posedge(clk)) begin
         ST_CAL_ERR: // 1
         begin
             // check if direction is matched, if match, error is the difference; if match, error is now capped at 3FFFFFF
-            err_sync <= (enc_dir_cmd == enc_dir_fb) ? {6'b0, enc_cmd} - {6'b0, enc_fb} : -freeze_perd;
+            err_sync <= (enc_dir_cmd == enc_dir_fb) ? {6'b0, enc_cmd} - {6'b0, enc_fb} : {6'b0, enc_fb} - freeze_perd;
 
             state <= ST_CAL_64;
         end
