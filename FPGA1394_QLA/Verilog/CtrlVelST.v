@@ -281,9 +281,9 @@ always @(posedge(clk)) begin
             velCtrlSaturate <= (pid16 >=  upid_clamp) ?  1 : 
                                ((pid16 <= -upid_clamp) ?  1 : 0);
 
-            velCtrlReady  <= 1'b1;
+            velCtrlReady  <= dac_busy ? 0 : 1'b1;
 
-            state <= ST_CAL_OUT;
+            state <= dac_busy ? ST_CAL_IDLE : ST_CAL_OUT;
         end
 
 
@@ -310,7 +310,7 @@ always @(posedge(clk)) begin
             velCtrlOutput <= (cur_step <= 16'h7000) ? 16'h7000 : 
                              (cur_step >= 16'h9000) ? 16'h9000 : cur_step;
 
-            velCtrlReady  <= 1'b1;
+            velCtrlReady  <= dac_busy ? 0 : 1'b1;
 
             state <= ST_SYS_IDT;
         end
